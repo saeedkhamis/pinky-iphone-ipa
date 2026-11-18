@@ -1,1 +1,57 @@
+name: Build Pinky Lite IPA (unsigned)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: Build iPhone app with Xcode 27
+    runs-on: xcode-27
+    steps:
+      - name: Download and verify official Pinky 2026.1118.5 iPhone kit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2026.1118.5 \
+            --repo DIYgod/pinky \
+            --pattern 'pinky-iphone-2026.1118.5.tar.gz' \
+            --dir "$RUNNER_TEMP" --clobber
+          echo "06a7bf363c20e874ff021f73bbcd8a8a1ec5a55e668a953f421ac1c67d5a67ad  $RUNNER_TEMP/pinky-iphone-2026.1118.5.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/pinky-iphone-2026.1118.5.tar.gz" -C "$RUNNER_TEMP"
+          test -f "$RUNNER_TEMP/pinky-iphone/project.yml"
+          test -f "$RUNNER_TEMP/pinky-iphone/build/core/libpinkycore.a"
+
+      - name: Build unsigned PinkyLite.app for physical iPhones
+        run: |
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          cd "$RUNNER_TEMP/pinky-iphone"
+          xcodegen generate --quiet
+          xcodebuild \
+            -project Pinky.xcodeproj \
+            -scheme PinkyLite \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/pinky-derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          test -f "$RUNNER_TEMP/pinky-derived/Build/Products/Debug-iphoneos/PinkyLite.app/PinkyLite"
+
+      - name: Package unsigned IPA (sign on your Windows PC)
+        run: |
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$RUNNER_TEMP/pinky-derived/Build/Products/Debug-iphoneos/PinkyLite.app" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry "$GITHUB_WORKSPACE/PinkyLite-2026.1118.5-unsigned.ipa" Payload
+          unzip -tqq "$GITHUB_WORKSPACE/PinkyLite-2026.1118.5-unsigned.ipa"
+
+      - name: Upload IPA for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: PinkyLite-unsigned-IPA
+          path: PinkyLite-2026.1118.5-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
 
